@@ -4,7 +4,6 @@
 package watcomdos;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -14,8 +13,9 @@ import java.util.Map;
 
 import generic.jar.ResourceFile;
 
-import ghidra.app.cmd.function.ApplyFunctionDataTypesCmd;
+import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
 import ghidra.app.cmd.function.DecompilerParameterIdCmd;
+import ghidra.app.cmd.function.FunctionRenameOption;
 import ghidra.app.services.AbstractAnalyzer;
 import ghidra.app.services.AnalysisPriority;
 import ghidra.app.services.AnalyzerType;
@@ -31,8 +31,10 @@ import ghidra.framework.Application;
 import ghidra.framework.options.Options;
 
 import ghidra.program.model.address.AddressSetView;
-import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.FileDataTypeManager;
+import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.lang.CompilerSpec;
 import ghidra.program.model.lang.PrototypeModel;
 import ghidra.program.model.listing.Function;
@@ -238,22 +240,75 @@ public class WatcomDefaultsAnalyzer extends AbstractAnalyzer {
 		}
 
 		try {
-			List<DataTypeManager> sources = new ArrayList<>();
-			sources.add(dtMgr);
+			Map<String, FunctionDefinition> defsByName = new HashMap<>();
+			collectFunctionDefinitions(dtMgr.getRootCategory(), defsByName, monitor);
 
-			ApplyFunctionDataTypesCmd apply = new ApplyFunctionDataTypesCmd(
-					sources,
-					set,
-					SourceType.IMPORTED,
-					false,
-					false);
+			int applied = 0;
+			int unmatched = 0;
+			int failed = 0;
+			FunctionManager functionManager = program.getFunctionManager();
+			for(Function function : functionManager.getFunctions(set, true)) {
+				monitor.checkCancelled();
 
-			apply.applyTo(program, monitor);
-			log.appendMsg(NAME, "applied function signatures from " + gdtName);
+				FunctionDefinition def = lookupDefinition(defsByName, function.getName());
+				if(def == null) {
+					unmatched++;
+					continue;
+				}
+
+				ApplyFunctionSignatureCmd signatureCmd = new ApplyFunctionSignatureCmd(
+						function.getEntryPoint(),
+						def,
+						SourceType.IMPORTED,
+						true,
+						FunctionRenameOption.NO_CHANGE);
+
+				if(signatureCmd.applyTo(program, monitor)) {
+					applied++;
+				}
+				else {
+					failed++;
+				}
+			}
+
+			log.appendMsg(
+					NAME,
+					"signatures from " + gdtName +
+					": applied = " + applied +
+					", unmatched = " + unmatched +
+					", failed = " + failed);
 		}
 		finally {
 			dtMgr.close();
 		}
+	}
+
+	private static void collectFunctionDefinitions(
+			Category category,
+			Map<String, FunctionDefinition> out,
+			TaskMonitor monitor) throws CancelledException {
+
+		for(DataType dataType : category.getDataTypes()) {
+			if(dataType instanceof FunctionDefinition) {
+				out.put(dataType.getName(), (FunctionDefinition) dataType);
+			}
+		}
+
+		for(Category sub : category.getCategories()) {
+			monitor.checkCancelled();
+			collectFunctionDefinitions(sub, out, monitor);
+		}
+	}
+
+	private static FunctionDefinition lookupDefinition(Map<String, FunctionDefinition> defs, String name) {
+		FunctionDefinition def = defs.get(name);
+		if(def != null) return def;
+
+		if(name.length() > 1 && name.endsWith("_")) {
+			return defs.get(name.substring(0, name.length() - 1));
+		}
+
+		return null;
 	}
 
 	private String detectModel(
