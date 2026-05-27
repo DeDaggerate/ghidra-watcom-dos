@@ -1,1 +1,2 @@
 *.fidbf filter=lfs diff=lfs merge=lfs -text
+*.gdt filter=lfs diff=lfs merge=lfs -text

@@ -4,7 +4,6 @@
 # Copyright (C) 2026 Emily "TTG" Banerjee <prs.ttg+dedagger@pm.me>
 
 import argparse
-import os
 import re
 import shutil
 import sys
@@ -16,10 +15,11 @@ from lib.ghidra import get_ghidra_directory
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NAME = "ghidra-watcom-dos"
 
-CSPEC_FILES = ("x86watcom.cspec", "x86watcom16.cspec")
+CSPEC_FILES = ("x86watcom.cspec", "x86watcom16.cspec", "x86watcom16far.cspec")
 COMPILER_ENTRIES = (
 		("x86:LE:32:default", '<compiler name="Watcom" spec="x86watcom.cspec" id="watcom"/>'),
-		("x86:LE:16:Real Mode", '<compiler name="watcom" spec="x86watcom16.cspec" id="watcom16"/>'))
+		("x86:LE:16:Real Mode", '<compiler name="watcom" spec="x86watcom16.cspec" id="watcom16"/>'),
+		("x86:LE:16:Real Mode", '<compiler name="watcom (far)" spec="x86watcom16far.cspec" id="watcom16far"/>'))
 
 def collect_extension() -> Path:
 	zip_path = PROJECT_ROOT / "dist" / f"{NAME}.zip"
@@ -65,15 +65,26 @@ def patch_cspecs(ghidra_directory: Path) -> None:
 		if not matches:
 			sys.exit(f'error: <language id="{language_id}"> not found in {ldefs.name}')
 
-		if entry in matches.group(2):
-			continue
+		body = re.sub(rf'\n[ \t]*{re.escape(entry)}', '', matches.group(2))
 
-		new_body = matches.group(2).rstrip() + "\n    " + entry + "\n  "
+		insertion = re.search(r'\n[ \t]*<external_name\b', body)
+		if insertion:
+			position = insertion.start()
+			new_body = body[:position] + "\n    " + entry + body[position:]
+		else:
+			new_body = body.rstrip() + "\n    " + entry + "\n  "
+
 		text = text[:matches.start(2)] + new_body + text[matches.end(2):]
 
 	ldefs.write_text(text, encoding="utf-8")
 
+parser = argparse.ArgumentParser(description="Install ghidra-watcom-dos extension and/or Watcom compiler specs")
+parser.add_argument("--cspecs-only", action="store_true", help="install only the .cspec files and ldefs entries (no built extension zip required)")
+arguments = parser.parse_args()
+
 ghidra_directory = get_ghidra_directory()
-install_extension(ghidra_directory, collect_extension())
+if not arguments.cspecs_only:
+	install_extension(ghidra_directory, collect_extension())
+
 patch_cspecs(ghidra_directory)
 print("Done. Restart Ghidra to pick up the changes.")

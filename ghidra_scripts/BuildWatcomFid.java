@@ -30,16 +30,16 @@ import ghidra.util.task.TaskMonitor;
 public class BuildWatcomFid extends GhidraScript {
 	@Override
 	protected void run() throws Exception {
-		String[] args = getScriptArgs();
-		if(args.length < 5 || (args.length - 3) % 2 != 0) {
+		String[] arguments = getScriptArgs();
+		if(arguments.length < 5 || (arguments.length - 3) % 2 != 0) {
 			printerr("Usage: BuildWatcomFid <rawOut.fidbf> <libName> <libVersion> <folder1> <variant1> [<folder2> <variant2> ...]");
-			printerr("Got: " + java.util.Arrays.toString(args));
+			printerr("Got: " + java.util.Arrays.toString(arguments));
 			return;
 		}
 
-		File rawOut = new File(args[0]);
-		String libName = args[1];
-		String libVersion = args[2];
+		File rawOut = new File(arguments[0]);
+		String libName = arguments[1];
+		String libVersion = arguments[2];
 
 		Project project = state.getProject();
 		if(project == null) {
@@ -47,7 +47,7 @@ public class BuildWatcomFid extends GhidraScript {
 			return;
 		}
 
-		TaskMonitor mon = monitor != null ? monitor : TaskMonitor.DUMMY;
+		TaskMonitor taskMonitor = monitor != null ? monitor : TaskMonitor.DUMMY;
 
 		File scratch = Files.createTempFile("watcom-fid-", ".fidb").toFile();
 		scratch.delete();
@@ -62,9 +62,9 @@ public class BuildWatcomFid extends GhidraScript {
 		try {
 			FidService service = new FidService();
 			int variantsAdded = 0;
-			for(int i = 3; i + 1 < args.length; i += 2) {
-				String folderPath = args[i];
-				String libVariant = args[i + 1];
+			for(int i = 3; i + 1 < arguments.length; i += 2) {
+				String folderPath = arguments[i];
+				String libVariant = arguments[i + 1];
 
 				DomainFolder folder = project.getProjectData().getFolder(folderPath);
 				if(folder == null) {
@@ -80,7 +80,7 @@ public class BuildWatcomFid extends GhidraScript {
 				}
 
 				LanguageID languageID;
-				Program sample = (Program) programs.get(0).getDomainObject(this, false, false, mon);
+				Program sample = (Program) programs.get(0).getDomainObject(this, false, false, taskMonitor);
 				try {
 					languageID = sample.getLanguageID();
 				}
@@ -99,7 +99,7 @@ public class BuildWatcomFid extends GhidraScript {
 						languageID,
 						null,
 						null,
-						mon);
+						taskMonitor);
 
 				println("\t" + libVariant +
 						": attempted = " + result.getTotalAttempted() +
@@ -119,19 +119,15 @@ public class BuildWatcomFid extends GhidraScript {
 				return;
 			}
 
-			// FidDB keeps a write transaction open for the whole openForUpdate
-			// session, and DBHandle.saveAs refuses to run while one is open.
-			// Commit + close FidDB, then re-open the packed file at the
-			// PackedDatabase layer with no transaction state and snapshot raw.
-			fidDb.saveDatabase("Building " + libName + ' ' + libVersion, mon);
+			fidDb.saveDatabase("Building " + libName + ' ' + libVersion, taskMonitor);
 			fidDb.close();
 			fidDbClosed = true;
 
-			PackedDatabase pdb = PackedDatabase.getPackedDatabase(scratch, false, mon);
+			PackedDatabase pdb = PackedDatabase.getPackedDatabase(scratch, false, taskMonitor);
 			try {
-				DBHandle handle = pdb.open(mon);
+				DBHandle handle = pdb.open(taskMonitor);
 				try {
-					handle.saveAs(rawOut, false, mon);
+					handle.saveAs(rawOut, false, taskMonitor);
 				}
 				finally {
 					handle.close();
@@ -140,12 +136,14 @@ public class BuildWatcomFid extends GhidraScript {
 			finally {
 				pdb.dispose();
 			}
+
 			println("[+] wrote " + rawOut + " (" + rawOut.length() + " bytes)");
 		}
 		finally {
 			if(!fidDbClosed) {
 				fidDb.close();
 			}
+
 			fileManager.removeUserFile(fidFile);
 			scratch.delete();
 		}

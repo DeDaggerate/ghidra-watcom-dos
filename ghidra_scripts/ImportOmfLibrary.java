@@ -8,6 +8,7 @@ import java.nio.file.AccessMode;
 import java.util.ArrayList;
 import java.util.List;
 
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.script.GhidraScript;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.ByteProviderWrapper;
@@ -28,10 +29,6 @@ import ghidra.util.task.TaskMonitor;
 public class ImportOmfLibrary extends GhidraScript {
 	private static final byte OMF_LIBRARY_MAGIC = (byte) 0xF0;
 
-	// Disabled to keep per-module analysis cheap: FID matching is irrelevant
-	// (we're _building_ the FIDB, not matching against existing ones); decompiler-
-	// driven passes and large data-archive lookups are pure overhead for OMF
-	// objects whose hashes only need disassembly + function boundaries.
 	private static final String[] DISABLED_ANALYZERS = {
 			"Decompiler Parameter ID",
 			"Decompiler Switch Analysis",
@@ -40,6 +37,13 @@ public class ImportOmfLibrary extends GhidraScript {
 			"Apply Data Archives",
 			"Embedded Media",
 			"ASCII Strings",
+			"Demangler GNU",
+			"Demangler Microsoft",
+			"PDB",
+			"PDB Universal",
+			"Non-Returning Functions - Discovered",
+			"Aggressive Instruction Finder",
+			"Watcom Calling Convention Defaults",
 	};
 
 	@Override
@@ -172,20 +176,33 @@ public class ImportOmfLibrary extends GhidraScript {
 		}
 	}
 
+	private boolean disablesLogged = false;
+
 	private void prepareAndAnalyze(Program program) {
-		// One outer transaction covers both option mutation and auto-analysis;
-		// AutoAnalysisManager.saveTaskTimes writes back to the options DB and
-		// needs the program to be in a transactional state.
-		int txId = program.startTransaction("Watcom FID prepare-and-analyze");
+		int transaction = program.startTransaction("Watcom FID prepare-and-analyze");
 		try {
-			Options options = program.getOptions("Analyzers");
+			Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
 			for(String name : DISABLED_ANALYZERS) {
 				options.setBoolean(name, false);
 			}
-			analyzeAll(program);
+
+			AutoAnalysisManager manager = AutoAnalysisManager.getAnalysisManager(program);
+
+			if(!disablesLogged) {
+				StringBuilder report = new StringBuilder();
+				for(String name : DISABLED_ANALYZERS) {
+					report.append("\n\t").append(name).append(" = ").append(options.getBoolean(name, true));
+				}
+				println("[+] analyzer disable state:" + report);
+				disablesLogged = true;
+			}
+
+			TaskMonitor taskMonitor = monitor != null ? monitor : TaskMonitor.DUMMY;
+			manager.reAnalyzeAll(null);
+			manager.startAnalysis(taskMonitor);
 		}
 		finally {
-			program.endTransaction(txId, true);
+			program.endTransaction(transaction, true);
 		}
 	}
 

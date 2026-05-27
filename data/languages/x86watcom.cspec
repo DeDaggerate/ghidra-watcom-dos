@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (C) 2026 Emily "TTG" Banerjee <prs.ttg+dedagger@pm.me> -->
 <compiler_spec>
 	<data_organization>
 		<pointer_size value="4" />
