@@ -1,0 +1,9 @@
+scratch/
+build/
+dist/
+
+__pycache__
+
+/.*/
+
+*.zip

@@ -1,0 +1,14 @@
+def ghidraInstallDir = System.env.GHIDRA_INSTALL_DIR ?:
+	(project.hasProperty("GHIDRA_INSTALL_DIR") ? project.getProperty("GHIDRA_INSTALL_DIR") : null)
+
+if(!ghidraInstallDir) {
+	throw new GradleException("GHIDRA_INSTALL_DIR is not set (env var or -PGHIDRA_INSTALL_DIR=...)")
+}
+
+apply from: new File(ghidraInstallDir).canonicalPath + "/support/buildExtension.gradle"
+
+buildExtension {
+	archiveFileName = "${project.name}.zip"
+	exclude 'scratch/**'
+	exclude '*.zip'
+}
