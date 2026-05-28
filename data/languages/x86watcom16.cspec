@@ -83,6 +83,41 @@
     </unaffected>
   </prototype>
 
+  <!-- Plain __cdecl alias. The Watcom C compiler accepts `__cdecl` as a
+       qualifier (used in asm-implemented CRT helpers like __dospawn), and
+       Ghidra's C parser preserves the spelling verbatim. Map it to the
+       same stack-call shape as __cdecl16near so GDTs parsed from headers
+       containing `__cdecl` find a matching prototype here. For binaries
+       compiled with a far-pointer-default model (large/huge), this is
+       still semantically correct for the asm helpers in question because
+       all of them take 2-byte word args, not segmented pointers. -->
+  <prototype name="__cdecl" extrapop="2" stackshift="2">
+    <input>
+      <pentry minsize="1" maxsize="500" align="2">
+        <addr space="stack" offset="2"/>
+      </pentry>
+    </input>
+    <output>
+      <pentry minsize="1" maxsize="2">
+        <register name="AX"/>
+      </pentry>
+      <pentry minsize="3" maxsize="4">
+        <addr space="join" piece1="DX" piece2="AX"/>
+      </pentry>
+    </output>
+    <unaffected>
+      <register name="SP"/>
+      <register name="BP"/>
+      <register name="SI"/>
+      <register name="DI"/>
+      <register name="DS"/>
+      <register name="CS"/>
+      <register name="ES"/>
+      <register name="SS"/>
+      <register name="DF"/>
+    </unaffected>
+  </prototype>
+
   <prototype name="__cdecl16far" extrapop="4" stackshift="4">
     <input>
       <pentry minsize="1" maxsize="500" align="2">

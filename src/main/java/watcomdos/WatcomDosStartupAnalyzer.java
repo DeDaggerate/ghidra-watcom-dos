@@ -138,7 +138,7 @@ public class WatcomDosStartupAnalyzer extends AbstractAnalyzer {
 			log.appendMsg(
 					NAME,
 					(renamedCstart ? "renamed " : "found ") + CSTART_NAME + " @ " + cstartAddress +
-					"; couldn't locate init→main→fini call triple in " + callSites.size() +
+					"; couldn't locate init->main->fini call triple in " + callSites.size() +
 					" candidate calls; main detection skipped");
 
 			return true;
