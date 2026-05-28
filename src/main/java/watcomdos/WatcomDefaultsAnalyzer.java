@@ -7,9 +7,11 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import generic.jar.ResourceFile;
 
@@ -243,9 +245,12 @@ public class WatcomDefaultsAnalyzer extends AbstractAnalyzer {
 			Map<String, FunctionDefinition> defsByName = new HashMap<>();
 			collectFunctionDefinitions(dtMgr.getRootCategory(), defsByName, monitor);
 
+			Set<String> noReturnSet = loadNoReturnSet(gdtName, log);
+
 			int applied = 0;
 			int unmatched = 0;
 			int failed = 0;
+			int markedNoReturn = 0;
 			FunctionManager functionManager = program.getFunctionManager();
 			for(Function function : functionManager.getFunctions(set, true)) {
 				monitor.checkCancelled();
@@ -253,21 +258,22 @@ public class WatcomDefaultsAnalyzer extends AbstractAnalyzer {
 				FunctionDefinition def = lookupDefinition(defsByName, function.getName());
 				if(def == null) {
 					unmatched++;
-					continue;
-				}
-
-				ApplyFunctionSignatureCmd signatureCmd = new ApplyFunctionSignatureCmd(
-						function.getEntryPoint(),
-						def,
-						SourceType.IMPORTED,
-						true,
-						FunctionRenameOption.NO_CHANGE);
-
-				if(signatureCmd.applyTo(program, monitor)) {
-					applied++;
 				}
 				else {
-					failed++;
+					ApplyFunctionSignatureCmd signatureCmd = new ApplyFunctionSignatureCmd(
+							function.getEntryPoint(),
+							def,
+							SourceType.IMPORTED,
+							false,
+							FunctionRenameOption.NO_CHANGE);
+
+					if(signatureCmd.applyTo(program, monitor)) applied++;
+					else failed++;
+				}
+
+				if(matchesNoReturn(noReturnSet, function.getName()) && !function.hasNoReturn()) {
+					function.setNoReturn(true);
+					markedNoReturn++;
 				}
 			}
 
@@ -276,11 +282,48 @@ public class WatcomDefaultsAnalyzer extends AbstractAnalyzer {
 					"signatures from " + gdtName +
 					": applied = " + applied +
 					", unmatched = " + unmatched +
-					", failed = " + failed);
+					", failed = " + failed +
+					"; marked noreturn = " + markedNoReturn);
 		}
 		finally {
 			dtMgr.close();
 		}
+	}
+
+	private Set<String> loadNoReturnSet(String gdtName, MessageLog log) {
+		String sidecarName = gdtName.replace(".gdt", ".noreturn");
+
+		ResourceFile resource;
+		try {
+			resource = Application.getModuleDataFile("noreturn/" + sidecarName);
+		}
+		catch(java.io.FileNotFoundException notFound) {
+			return Collections.emptySet();
+		}
+
+		Set<String> names = new HashSet<>();
+		try(java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(resource.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+			String line;
+			while((line = reader.readLine()) != null) {
+				String trimmed = line.trim();
+				if(!trimmed.isEmpty()) names.add(trimmed);
+			}
+		}
+		catch(java.io.IOException ioe) {
+			log.appendMsg(NAME, "failed to read noreturn sidecar " + sidecarName + ": " + ioe.getMessage());
+		}
+
+		return names;
+	}
+
+	private static boolean matchesNoReturn(Set<String> noReturnSet, String functionName) {
+		if(noReturnSet.contains(functionName)) return true;
+
+		if(functionName.length() > 1 && functionName.endsWith("_")) {
+			return noReturnSet.contains(functionName.substring(0, functionName.length() - 1));
+		}
+
+		return false;
 	}
 
 	private static void collectFunctionDefinitions(

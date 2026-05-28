@@ -4,9 +4,11 @@
 # Copyright (C) 2026 Emily "TTG" Banerjee <prs.ttg+dedagger@pm.me>
 
 import argparse
+import os
 import re
 import shutil
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -41,6 +43,17 @@ def install_extension(ghidra_directory: Path, zip_path: Path) -> Path:
 
 	with zipfile.ZipFile(zip_path) as zf:
 		zf.extractall(extension_root)
+
+	# Ghidra's PackedDatabaseCache (used for .gdt / .fidb archives) keys on file
+	# mtime to decide whether the cached unpacked copy is stale. Zip extraction
+	# preserves the timestamp stored in the archive (typically the 1980 epoch
+	# from buildExtension), so re-installing leaves the cache thinking nothing
+	# changed and Ghidra serves the OLD type/fingerprint contents. Touch the
+	# whole extension tree so the cache invalidates on next read.
+	now = time.time()
+	for root, _, files in os.walk(target):
+		for filename in files:
+			os.utime(os.path.join(root, filename), (now, now))
 
 	return target
 

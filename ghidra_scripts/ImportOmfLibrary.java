@@ -42,8 +42,11 @@ public class ImportOmfLibrary extends GhidraScript {
 			"PDB",
 			"PDB Universal",
 			"Non-Returning Functions - Discovered",
-			"Aggressive Instruction Finder",
-			"Watcom Calling Convention Defaults",
+			"Watcom Calling Convention Defaults"
+	};
+
+	private static final String[] ENABLED_ANALYZERS = {
+			"Aggressive Instruction Finder"
 	};
 
 	@Override
@@ -103,7 +106,8 @@ public class ImportOmfLibrary extends GhidraScript {
 		int failed = 0;
 		ArrayList<String> failures = new ArrayList<>();
 		for(OmfLibraryRecord.MemberHeader member : members) {
-			if(monitor.isCancelled()) break;
+			if(monitor.isCancelled())
+				break;
 
 			String baseName = sanitize(member.name);
 			try(ByteProviderWrapper provider = new ByteProviderWrapper(lib, member.payloadOffset, member.size, null)) {
@@ -125,7 +129,8 @@ public class ImportOmfLibrary extends GhidraScript {
 		}
 
 		println("[+] Imported " + imported + " / failed " + failed + " of " + members.size());
-		for(String f : failures) printerr("\t- " + f);
+		for(String f : failures)
+			printerr("\t- " + f);
 	}
 
 	private void importSingleModule(
@@ -170,8 +175,7 @@ public class ImportOmfLibrary extends GhidraScript {
 				DomainFile saved = loaded.save(monitor);
 				println("\t+ " + saved.getPathname());
 			}
-		}
-		finally {
+		} finally {
 			results.close();
 		}
 	}
@@ -182,28 +186,55 @@ public class ImportOmfLibrary extends GhidraScript {
 		int transaction = program.startTransaction("Watcom FID prepare-and-analyze");
 		try {
 			Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
-			for(String name : DISABLED_ANALYZERS) {
+			for(String name : DISABLED_ANALYZERS)
 				options.setBoolean(name, false);
-			}
+			for(String name : ENABLED_ANALYZERS)
+				options.setBoolean(name, true);
 
 			AutoAnalysisManager manager = AutoAnalysisManager.getAnalysisManager(program);
 
 			if(!disablesLogged) {
-				StringBuilder report = new StringBuilder();
+				StringBuilder report = new StringBuilder("\n  disabled:");
 				for(String name : DISABLED_ANALYZERS) {
 					report.append("\n\t").append(name).append(" = ").append(options.getBoolean(name, true));
 				}
-				println("[+] analyzer disable state:" + report);
+				report.append("\n  enabled:");
+				for(String name : ENABLED_ANALYZERS) {
+					report.append("\n\t").append(name).append(" = ").append(options.getBoolean(name, true));
+				}
+				println("[+] analyzer state:" + report);
 				disablesLogged = true;
 			}
 
 			TaskMonitor taskMonitor = monitor != null ? monitor : TaskMonitor.DUMMY;
 			manager.reAnalyzeAll(null);
 			manager.startAnalysis(taskMonitor);
-		}
-		finally {
+
+			renameAnonymousFunctions(program);
+		} finally {
 			program.endTransaction(transaction, true);
 		}
+	}
+
+	private void renameAnonymousFunctions(Program program) {
+		String programName = program.getName();
+		String moduleName = stripExtension(programName);
+		int renamed = 0;
+		for(ghidra.program.model.listing.Function function : program.getFunctionManager().getFunctions(true)) {
+			if(function.getSymbol().getSource() != ghidra.program.model.symbol.SourceType.DEFAULT)
+				continue;
+			if(function.isThunk() || function.isExternal())
+				continue;
+			try {
+				long offset = function.getEntryPoint().getOffset();
+				String newName = String.format("%s_anon_%04x", moduleName, offset);
+				function.setName(newName, ghidra.program.model.symbol.SourceType.ANALYSIS);
+				renamed++;
+			}
+			catch(Exception ignored) {}
+		}
+		if(renamed > 0)
+			println("\t  renamed " + renamed + " anonymous functions in " + programName);
 	}
 
 	private static String stripExtension(String name) {
@@ -212,7 +243,8 @@ public class ImportOmfLibrary extends GhidraScript {
 	}
 
 	private static String sanitize(String name) {
-		if(name == null || name.isEmpty()) return "module";
+		if(name == null || name.isEmpty())
+			return "module";
 
 		StringBuilder stringBuilder = new StringBuilder(name.length());
 
