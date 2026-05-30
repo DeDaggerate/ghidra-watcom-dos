@@ -30,6 +30,12 @@
         <pentry minsize="1" maxsize="2">
           <register name="CX"/>
         </pentry>
+        <pentry minsize="3" maxsize="4">
+          <addr space="join" piece1="DX" piece2="AX"/>
+        </pentry>
+        <pentry minsize="3" maxsize="4">
+          <addr space="join" piece1="CX" piece2="BX"/>
+        </pentry>
         <pentry minsize="1" maxsize="500" align="2">
           <addr space="stack" offset="2"/>
         </pentry>
@@ -156,6 +162,33 @@
       <register name="BP"/>
       <register name="SI"/>
       <register name="DI"/>
+      <register name="DS"/>
+      <register name="CS"/>
+      <register name="ES"/>
+      <register name="SS"/>
+      <register name="DF"/>
+    </unaffected>
+  </prototype>
+
+  <prototype name="__interrupt" extrapop="6" stackshift="6">
+    <input>
+      <pentry minsize="1" maxsize="500" align="2">
+        <addr space="stack" offset="6"/>
+      </pentry>
+    </input>
+    <output>
+      <pentry minsize="1" maxsize="2">
+        <register name="AX"/>
+      </pentry>
+    </output>
+    <unaffected>
+      <register name="BX"/>
+      <register name="CX"/>
+      <register name="DX"/>
+      <register name="SI"/>
+      <register name="DI"/>
+      <register name="SP"/>
+      <register name="BP"/>
       <register name="DS"/>
       <register name="CS"/>
       <register name="ES"/>
