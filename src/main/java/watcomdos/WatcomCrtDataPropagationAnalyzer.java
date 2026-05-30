@@ -58,6 +58,11 @@ public class WatcomCrtDataPropagationAnalyzer extends AbstractAnalyzer {
 
 	private static final String BOOKMARK_CATEGORY = "WatcomCRT";
 	private static final String CATEGORIES_RESOURCE = "crt_categories.json";
+	private static final String VECTORS_RESOURCE = "crt_vectors.json";
+	private static final String VECTORS_CATEGORY = "vectors";
+
+	private static final int MAX_WRAPPER_BYTES = 128;
+	private static final int MAX_WRAPPER_CALLEES = 6;
 
 	public WatcomCrtDataPropagationAnalyzer() {
 		super(NAME, DESCRIPTION, AnalyzerType.FUNCTION_ANALYZER);
@@ -93,8 +98,14 @@ public class WatcomCrtDataPropagationAnalyzer extends AbstractAnalyzer {
 
 		Map<Long, String> offsetToCategory = new HashMap<>();
 		Map<String, Integer> categoryHitCounts = new LinkedHashMap<>();
-		int seedFunctions = 0;
 
+		Set<Long> vectorOffsets = loadVectorOffsets(log);
+		for(Long offset : vectorOffsets) {
+			offsetToCategory.put(offset, VECTORS_CATEGORY);
+			categoryHitCounts.merge(VECTORS_CATEGORY, 1, Integer::sum);
+		}
+
+		int seedFunctions = 0;
 		for(Function function : functionManager.getFunctions(true)) {
 			monitor.checkCancelled();
 
@@ -113,7 +124,9 @@ public class WatcomCrtDataPropagationAnalyzer extends AbstractAnalyzer {
 				NAME,
 				"seeded " +
 				seedFunctions +
-				" named CRT functions; recorded " +
+				" named CRT functions + " +
+				vectorOffsets.size() +
+				" manual vector slots; recorded " +
 				offsetToCategory.size() +
 				" category-private offsets (" +
 				categoryHitCounts +
@@ -159,6 +172,54 @@ public class WatcomCrtDataPropagationAnalyzer extends AbstractAnalyzer {
 		}
 
 		log.appendMsg(NAME, "tagged " + tagged + " functions: " + taggedByCategory);
+
+		int wrapperTagged = 0;
+		Map<String, Integer> wrapperByCategory = new LinkedHashMap<>();
+		boolean changed = true;
+		while(changed) {
+			changed = false;
+			for(Function function : functionManager.getFunctions(true)) {
+				monitor.checkCancelled();
+
+				if(function.isThunk() || function.isExternal()) continue;
+				if(function.getSymbol().getSource() != SourceType.DEFAULT) continue;
+				if(WatcomCrtAnchors.USER_CODE_ANCHORS.contains(function.getName())) continue;
+				if(function.getBody().getNumAddresses() > MAX_WRAPPER_BYTES) continue;
+
+				Set<Function> callees = function.getCalledFunctions(monitor);
+				if(callees.isEmpty() || callees.size() > MAX_WRAPPER_CALLEES) continue;
+
+				String inheritedCategory = null;
+				boolean allClib = true;
+				for(Function callee : callees) {
+					String calleeName = callee.getName();
+					if(!calleeName.startsWith("__clib_")) { allClib = false; break; }
+					if(inheritedCategory == null) {
+						int underscore = calleeName.indexOf('_', 7);
+						if(underscore > 7) inheritedCategory = calleeName.substring(7, underscore);
+					}
+				}
+				if(!allClib || inheritedCategory == null) continue;
+
+				try {
+					String newName = String.format(
+							"__clib_%s_ANON_%s",
+							inheritedCategory,
+							function.getEntryPoint().toString().replace(":", "_"));
+					function.setName(newName, SourceType.ANALYSIS);
+					markBookmarkAndPlate(program, function, inheritedCategory);
+
+					wrapperTagged++;
+					wrapperByCategory.merge(inheritedCategory, 1, Integer::sum);
+					changed = true;
+				}
+				catch(Exception exception) {
+					log.appendMsg(NAME, "wrapper-rename " + function.getEntryPoint() + ": " + exception.getMessage());
+				}
+			}
+		}
+
+		log.appendMsg(NAME, "wrapper-tagged " + wrapperTagged + " thin CRT wrappers: " + wrapperByCategory);
 		return true;
 	}
 
@@ -207,6 +268,44 @@ public class WatcomCrtDataPropagationAnalyzer extends AbstractAnalyzer {
 		if(existing == null || existing.contains("Watcom CRT")) {
 			listing.setComment(entry, CommentType.PLATE, plate);
 		}
+	}
+
+	private static Set<Long> loadVectorOffsets(MessageLog log) {
+		ResourceFile resource;
+		try {
+			resource = Application.getModuleDataFile(VECTORS_RESOURCE);
+		}
+		catch(java.io.FileNotFoundException notFound) {
+			return Collections.emptySet();
+		}
+
+		Set<Long> out = new HashSet<>();
+		try(BufferedReader reader = new BufferedReader(new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
+			JsonElement root = JsonParser.parseReader(reader);
+			if(!root.isJsonObject()) return out;
+
+			JsonElement vectors = root.getAsJsonObject().get("vectors");
+			if(vectors == null || !vectors.isJsonArray()) return out;
+
+			for(JsonElement element : (JsonArray) vectors) {
+				if(!element.isJsonPrimitive()) continue;
+				String text = element.getAsString().trim();
+				try {
+					long parsed = text.startsWith("0x") || text.startsWith("0X")
+							? Long.parseLong(text.substring(2), 16)
+							: Long.parseLong(text);
+					out.add(parsed);
+				}
+				catch(NumberFormatException nfe) {
+					log.appendMsg(NAME, "skipping malformed vector offset " + text);
+				}
+			}
+		}
+		catch(java.io.IOException exception) {
+			log.appendMsg(NAME, "failed to read " + VECTORS_RESOURCE + ": " + exception.getMessage());
+		}
+
+		return out;
 	}
 
 	private static Map<String, String> loadCategories(MessageLog log) {
