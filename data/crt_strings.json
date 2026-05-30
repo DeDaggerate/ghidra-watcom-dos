@@ -1,0 +1,20 @@
+{
+	"strings": [
+		"stack overflow",
+		"Stack overflow",
+		"Stack Overflow",
+		"NULL assignment",
+		"DOSSEG",
+		"_amblksiz",
+		"+INF",
+		"-INF",
+		"NAN",
+		"+inf",
+		"-inf",
+		"nan",
+		"R6002",
+		"R6003",
+		"R6008",
+		"R6009"
+	]
+}
